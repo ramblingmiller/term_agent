@@ -92,6 +92,32 @@ FALLOUT_FINDINGS = [
     "You found: [Rusty Key]"
 ]
 
+def execute_local_command(command: str, timeout: int = None) -> tuple[str, int]:
+    """Execute a local shell command after validating it against the security policy."""
+    from security.SecurityValidator import SecurityValidator
+
+    validator = SecurityValidator()
+    is_allowed, reason = validator.validate_command(command)
+    if not is_allowed:
+        return f"Command blocked by security policy: {reason}", 1
+
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        output = result.stdout + result.stderr
+        return output, result.returncode
+    except subprocess.TimeoutExpired as e:
+        stdout_str = e.stdout.decode() if e.stdout else ""
+        stderr_str = e.stderr.decode() if e.stderr else ""
+        return f"Command timed out after {timeout} seconds. Output so far:\n{stdout_str}\n{stderr_str}", 124
+    except Exception as e:
+        return f"Error executing command: {str(e)}", 1
+
 class term_agent:
     def __init__(self):
         self.basedir = os.path.dirname(os.path.abspath(__file__))
@@ -503,7 +529,8 @@ class term_agent:
         
         client = OpenAI(api_key=self.api_key, timeout=timeout)
         try:
-            if format == 'json':
+            wants_json = format in ('json', 'json_object')
+            if wants_json:
                 response = client.chat.completions.create(
                     model=model,
                     messages=[
@@ -694,7 +721,8 @@ class term_agent:
         full_prompt = f"{role_system_content}\n\n{prompt}"
 
         try:
-            if format == 'json':
+            wants_json = format in ('json', 'json_object')
+            if wants_json:
                 response = client.chat.completions.create(
                     model=model,
                     messages=[
@@ -1216,29 +1244,4 @@ Controls:
 
 if __name__ == "__main__":
     main()
-
-def execute_local_command(command: str, timeout: int = None) -> tuple[str, int]:
-    from security.SecurityValidator import SecurityValidator
-    validator = SecurityValidator()
-    is_allowed, reason = validator.validate_command(command)
-    if not is_allowed:
-        return f"Command blocked by security policy: {reason}", 1
-        
-    import subprocess
-    try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout
-        )
-        output = result.stdout + result.stderr
-        return output, result.returncode
-    except subprocess.TimeoutExpired as e:
-        stdout_str = e.stdout.decode() if e.stdout else ""
-        stderr_str = e.stderr.decode() if e.stderr else ""
-        return f"Command timed out after {timeout} seconds. Output so far:\n{stdout_str}\n{stderr_str}", 124
-    except Exception as e:
-        return f"Error executing command: {str(e)}", 1
 

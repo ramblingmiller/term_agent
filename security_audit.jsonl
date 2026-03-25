@@ -1,1 +1,4 @@
 {"timestamp": 1774470217.9582136, "command": "echo security_allowed", "decision": "allow", "reason": "Default policy action"}
+{"timestamp": 1774482019.7079673, "command": "echo hello", "decision": "allow", "reason": "Default policy action"}
+{"timestamp": 1774482019.708041, "command": "reboot", "decision": "deny", "reason": "Dangerous command blocked: reboot"}
+{"timestamp": 1774482019.708103, "command": "dd if=/dev/zero of=/dev/sda bs=1M", "decision": "deny", "reason": "Dangerous command blocked: dd against device path"}

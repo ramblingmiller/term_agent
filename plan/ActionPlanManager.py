@@ -280,10 +280,19 @@ class ActionPlanManager:
         """Return plan progress statistics."""
         total = len(self.steps)
         if total == 0:
-            return {"total": 0, "completed": 0, "failed": 0, "pending": 0, "in_progress": 0, "percentage": 0}
+            return {
+                "total": 0,
+                "completed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "pending": 0,
+                "in_progress": 0,
+                "percentage": 0
+            }
         
         completed = sum(1 for s in self.steps if s.status == StepStatus.COMPLETED)
         failed = sum(1 for s in self.steps if s.status == StepStatus.FAILED)
+        skipped = sum(1 for s in self.steps if s.status == StepStatus.SKIPPED)
         pending = sum(1 for s in self.steps if s.status == StepStatus.PENDING)
         in_progress = sum(1 for s in self.steps if s.status == StepStatus.IN_PROGRESS)
         percentage = int((completed / total) * 100)
@@ -292,6 +301,7 @@ class ActionPlanManager:
             "total": total,
             "completed": completed,
             "failed": failed,
+            "skipped": skipped,
             "pending": pending,
             "in_progress": in_progress,
             "percentage": percentage

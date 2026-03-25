@@ -158,6 +158,78 @@ def test_security_policy():
             
     assert found_rm
     assert found_echo
+
+def test_security_validator_blocks_builtin_dangerous_commands():
+    from security.SecurityValidator import SecurityValidator
+
+    val = SecurityValidator()
+    assert val.validate_command("reboot")[0] == False
+    assert val.validate_command("dd if=/dev/zero of=/dev/sda bs=1M")[0] == False
+    assert val.validate_command("echo 'unterminated")[0] == False
+
+def test_get_progress_includes_skipped():
+    from plan.ActionPlanManager import ActionPlanManager, PlanStep, StepStatus
+
+    manager = ActionPlanManager()
+    manager.steps = [
+        PlanStep(number=1, description="done", status=StepStatus.COMPLETED),
+        PlanStep(number=2, description="skip", status=StepStatus.SKIPPED),
+        PlanStep(number=3, description="pending", status=StepStatus.PENDING),
+    ]
+
+    progress = manager.get_progress()
+
+    assert progress["completed"] == 1
+    assert progress["skipped"] == 1
+    assert progress["pending"] == 1
+
+def test_chatgpt_and_openrouter_default_to_json_object(monkeypatch):
+    import term_ag
+
+    captured_calls = []
+
+    class DummyLogger:
+        def info(self, *_args, **_kwargs):
+            pass
+
+        def debug(self, *_args, **_kwargs):
+            pass
+
+        def error(self, *_args, **_kwargs):
+            pass
+
+    class FakeResponse:
+        def __init__(self, content):
+            self.choices = [type("Choice", (), {"message": type("Message", (), {"content": content})()})()]
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured_calls.append(kwargs)
+            return FakeResponse("{}")
+
+    class FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr(term_ag, "OpenAI", FakeOpenAI)
+
+    agent = term_ag.term_agent.__new__(term_ag.term_agent)
+    agent.api_key = "test-key"
+    agent.default_model = "gpt-test"
+    agent.default_max_tokens = 32
+    agent.default_temperature = 0.1
+    agent.openrouter_model = "router-test"
+    agent.openrouter_max_tokens = 64
+    agent.openrouter_temperature = 0.2
+    agent.logger = DummyLogger()
+    agent.print_console = lambda *_args, **_kwargs: None
+
+    assert term_ag.term_agent.connect_to_chatgpt(agent, "sys", "prompt") == "{}"
+    assert captured_calls[-1]["response_format"] == {"type": "json_object"}
+
+    assert term_ag.term_agent.connect_to_openrouter(agent, "sys", "prompt") == "{}"
+    assert captured_calls[-1]["response_format"] == {"type": "json_object"}
+
 def test_security_policy_file_exists():
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     policy_file = os.path.join(repo_root, "security_policy.json")

@@ -20,12 +20,41 @@ class SecurityValidator:
         except Exception:
             return {"default_action": "allow", "rules": []}
 
+    def _deny(self, command: str, reason: str) -> tuple[bool, str]:
+        self._audit(command, "deny", reason)
+        return False, reason
+
+    def _check_builtin_dangerous_command(self, command: str, cmd_name: str, cmd_args: list[str]) -> str | None:
+        """Block especially dangerous commands even when policy defaults to allow."""
+        if cmd_name in {"reboot", "halt", "poweroff"}:
+            return f"Dangerous command blocked: {cmd_name}"
+
+        if cmd_name == "shutdown":
+            return "Dangerous command blocked: shutdown"
+
+        if cmd_name == "systemctl" and any(arg in {"reboot", "halt", "poweroff"} for arg in cmd_args):
+            return "Dangerous command blocked: systemctl power action"
+
+        if cmd_name == "init" and any(arg in {"0", "6"} for arg in cmd_args):
+            return "Dangerous command blocked: init power action"
+
+        if cmd_name == "dd" and any(arg.startswith(("if=/dev/", "of=/dev/")) for arg in cmd_args):
+            return "Dangerous command blocked: dd against device path"
+
+        if cmd_name == "mkfs" or cmd_name.startswith("mkfs.") or cmd_name in {"fdisk", "sfdisk", "parted", "wipefs"}:
+            return f"Dangerous command blocked: {cmd_name}"
+
+        compact_command = re.sub(r"\s+", "", command)
+        if compact_command == ":(){:|:&};:":
+            return "Dangerous command blocked: fork bomb pattern"
+
+        return None
+
     def validate_command(self, command: str) -> tuple[bool, str]:
         try:
             tokens = shlex.split(command)
         except Exception:
-            # If we can't parse it, default to allowed or denied based on policy
-            tokens = command.split()
+            return self._deny(command, "Unable to parse command safely")
             
         if not tokens:
             self._audit(command, "allow", "Empty command")
@@ -33,6 +62,10 @@ class SecurityValidator:
             
         cmd_name = tokens[0]
         cmd_args = tokens[1:]
+
+        dangerous_reason = self._check_builtin_dangerous_command(command, cmd_name, cmd_args)
+        if dangerous_reason:
+            return self._deny(command, dangerous_reason)
         
         rules = self.policy.get("rules", [])
         for rule in rules:
