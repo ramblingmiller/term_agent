@@ -1913,7 +1913,8 @@ class VaultAIAgentRunner:
                         self.context_manager.add_user_message(
                             "Your response is missing the required 'tool' field. "
                             "Valid tools are: 'create_action_plan', 'bash', 'read_file', 'write_file', 'edit_file', "
-                            "'list_directory', 'copy_file', 'delete_file', 'update_plan_step', 'ask_user', 'web_search_agent', 'finish'. "
+                            "'search_in_file', 'list_directory', 'copy_file', 'delete_file', 'update_plan_step', "
+                            "'ask_user', 'web_search_agent', 'finish'. "
                             "Please provide a valid JSON response with the correct structure."
                         )
                         continue
@@ -2864,7 +2865,9 @@ class VaultAIAgentRunner:
                         terminal.print_console(f"AI response contained an invalid 'tool': '{tool}' in action: {action_item}.")
                         user_feedback_invalid_tool = (
                             f"Your response included an action with an invalid tool: '{tool}' in {action_item}. "
-                            f"Valid tools are: 'bash', 'read_file', 'write_file', 'edit_file', 'list_directory', 'copy_file', 'delete_file', 'update_plan_step', 'ask_user', 'web_search_agent', and 'finish'. "
+                            f"Valid tools are: 'create_action_plan', 'bash', 'read_file', 'write_file', 'edit_file', "
+                            f"'search_in_file', 'list_directory', 'copy_file', 'delete_file', 'update_plan_step', "
+                            f"'ask_user', 'web_search_agent', and 'finish'. "
                         )
                         if len(actions_to_process) > 1 and action_item_idx < len(actions_to_process) - 1:
                             user_feedback_invalid_tool += "I am skipping this invalid action and proceeding with the next ones if available."

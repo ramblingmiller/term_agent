@@ -134,11 +134,15 @@ def summarize_ps(text: str) -> str:
             continue
 
     top_cpu = max(cpu_values) if cpu_values else 0
+    preview_lines = [lines[0], *procs[:10]]
+    preview = "\n".join(preview_lines)
 
     return f"""PROCESS SNAPSHOT:
 - total processes: {total}
 - root processes: {root_count}
 - max CPU usage: {top_cpu:.2f}%
+- preview (first {min(total, 10)} processes):
+{preview}
 """
 
 

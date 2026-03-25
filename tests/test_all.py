@@ -235,3 +235,25 @@ def test_security_policy_file_exists():
     policy_file = os.path.join(repo_root, "security_policy.json")
     assert os.path.exists(policy_file), f"Expected {policy_file} to exist"
 
+def test_summarize_ps_keeps_process_preview():
+    from ai.table_summarizer import summarize_ps
+
+    text = "\n".join([
+        "USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND",
+        "root 1 0.1 0.0 100 10 ? Ss 00:00 00:00 init",
+        "kris 2 1.5 0.1 200 20 ? R 00:01 00:01 python app.py",
+    ])
+
+    summary = summarize_ps(text)
+
+    assert "PROCESS SNAPSHOT:" in summary
+    assert "- preview (first 2 processes):" in summary
+    assert "USER PID %CPU %MEM" in summary
+    assert "python app.py" in summary
+
+def test_search_in_file_listed_as_valid_tool():
+    with open("VaultAiAgentRunner.py", "r") as f:
+        content = f.read()
+
+    assert "'search_in_file'" in content
+
