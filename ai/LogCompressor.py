@@ -5,10 +5,17 @@ Log Compressor - kompresja logów poprzez maskowanie zmiennych i grupowanie powt
 import re
 import logging
 from collections import defaultdict
-from sentence_transformers import SentenceTransformer
-from sklearn.cluster import DBSCAN
-import numpy as np
 import os
+
+try:
+    from sentence_transformers import SentenceTransformer
+    from sklearn.cluster import DBSCAN
+    import numpy as np
+except ImportError as e:
+    SentenceTransformer = None
+    DBSCAN = None
+    np = None
+    _ml_missing_error = str(e)
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
@@ -108,6 +115,11 @@ class LogCompressor:
 
 class DynamicLogCompressor:
     def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2", dir_app=None, logger=None):
+        if SentenceTransformer is None:
+            import sys
+            print(f"Error: Missing optional ML dependencies (sentence-transformers, scikit-learn, numpy, huggingface_hub).", file=sys.stderr)
+            sys.exit(1)
+            
         self.logger = logger or logging.getLogger(__name__)
         
         os.environ["CUDA_VISIBLE_DEVICES"] = ""      # wymuszenie CPU

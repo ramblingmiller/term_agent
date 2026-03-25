@@ -1,0 +1,9 @@
+{
+  "default_action": "allow",
+  "rules": [
+    {
+      "action": "deny",
+      "command": "rm"
+    }
+  ]
+}

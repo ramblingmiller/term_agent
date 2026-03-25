@@ -13,7 +13,6 @@ def get_agent_system_prompt(
     linux_version: str,
     is_root: bool = False,
     auto_explain_command: bool = True,
-    user_prvileges: str = "user"
 ) -> str:
     """
     Generate the main agent system prompt with environment context.
@@ -34,7 +33,6 @@ def get_agent_system_prompt(
         tools_section = (
             '- {"tool":"bash","command":"...","timeout":seconds,"explain":"..."}\n'
             '- {"tool":"web_search_agent","query":"...","max_sources":5,"deep_search":true,"explain":"..."}\n'
-            '- {"tool":"analysis_data","arguments":{"type":"calculate | extract | summarize | compare | trend | classify | validate | transform","input":"...","instructions":"...","context":"...","output_format":"json | text | number","constraints":{"max_tokens":1000,"precision":"low | medium | high"} },"explain":"..."}\n'
             '- {"tool":"ask_user","question":"...","explain":"..."}\n'
             '- {"tool":"search_in_file","path":"...","query":"...","context_lines":N,"max_results":M,"explain":"..."}\n'
             '- {"tool":"read_file","path":"...","start_line":N,"end_line":M,"max_chars":K,"explain":"..."}\n'
@@ -44,15 +42,13 @@ def get_agent_system_prompt(
             '- {"tool":"copy_file","source":"...","destination":"...","overwrite":true|false,"explain":"..."}\n'
             '- {"tool":"delete_file","path":"...","backup":true|false,"explain":"..."}\n'
             '- {"tool":"create_action_plan","goal":"...","explain":"..."}\n'
-            '- {"tool":"update_plan_step","step_number":N,"status":"completed|failed|skipped","result":"..."}\n'
-            '- {"tool":"compress_context","arguments":{"input":"<raw_data_or_previous_output>","goal":"reduce_tokens","max_tokens":1000},"explain":"..." }\n'
+            '- {"tool":"update_plan_step","step_number":N,"status":"completed|failed|skipped|in_progress","result":"..."}\n'
             '- {"tool":"finish","summary":"a detailed summary or answer to a question depending on the task","goal_success":true|false}\n\n'
         )
     else:
         tools_section = (
             '- {"tool":"bash","command":"...","timeout":seconds}\n'
             '- {"tool":"web_search_agent","query":"...","max_sources":5,"deep_search":true}\n'
-            '- {"tool":"analysis_data","arguments":{"type":"calculate | extract | summarize | compare | trend | classify | validate | transform","input":"...","instructions":"...","context":"...","output_format":"json | text | number","constraints":{"max_tokens":300,"precision":"low | medium | high"} } }\n'
             '- {"tool":"search_in_file","path":"...","query":"...", "context_lines":N,"max_results":M}\n'
             '- {"tool":"read_file","path":"...","start_line":N,"end_line":M,"max_chars":K}\n'
             '- {"tool":"write_file","path":"...","content":"..."}\n'
@@ -61,29 +57,20 @@ def get_agent_system_prompt(
             '- {"tool":"copy_file","source":"...","destination":"...","overwrite":true|false}\n'
             '- {"tool":"delete_file","path":"...","backup":true|false}\n'
             '- {"tool":"create_action_plan","goal":"..."}\n'
-            '- {"tool":"update_plan_step","step_number":N,"status":"completed|failed|skipped","result":"..."}\n'
-            '- {"tool":"compress_context","arguments":{"input":"<raw_data_or_previous_output>","goal":"reduce_tokens","max_tokens":1000} }\n'
+            '- {"tool":"update_plan_step","step_number":N,"status":"completed|failed|skipped|in_progress","result":"..."}\n'
             '- {"tool":"finish","summary":"a detailed summary or answer to a question depending on the task","goal_success":true|false}\n\n'
         )
-    # if is_root:
-    #     header = f"Today is: {current_datetime}\nworkspace={workspace}\nenv={linux_distro} {linux_version} with root privileges"
-    # else:
-    #     header = f"Today is: {current_datetime}\nworkspace={workspace}\nenv={linux_distro} {linux_version}"
-    header = f"Today is: {current_datetime}\nworkspace={workspace}\nenv={linux_distro} {linux_version}\nuser_privileges={user_prvileges}"
-    
 
     base_prompt = (
-        f"{header}\n"
+        f"dt={current_datetime}\nwd={workspace}\nenv={linux_distro} {linux_version}\n"
         "You are an autonomous terminal agent. Solve the task via shell/file ops.\n\n"
-
         "REASONING & ADAPTATION\n"
-        "- Perform internal reasoning BEFORE generating actions\n"
+        "- Before each action, reason about what is needed\n"
         "- Base decisions strictly on observed outputs and current system state\n"
         "- After each result, reassess assumptions\n"
-        "- If assumptions fail, adapt strategy\n"
+        "- If assumptions fail, adapt strategy within the current plan\n"
         "- Prefer observed evidence over initial expectations\n"
-        "- Do NOT output reasoning\n\n"
-
+        "- Applies especially to debugging, log analysis, system exploration, and unknown environments\n\n"
         "PLANNING RULES\n"
         "Create a plan ONLY if no active plan exists and task requires >2 steps or deep analysis.\n"
         "Deep analysis includes: log correlation, root cause investigation, audits, state comparison, hypothesis testing.\n"
@@ -92,68 +79,36 @@ def get_agent_system_prompt(
         "Maximum 1 plan creation per task.\n"
         "If a plan exists:\n"
         "- Continue execution within the existing plan\n"
+        "- Use update_plan_step after each step if plan was created\n"
         "- Adapt inside the plan instead of creating a new one\n\n"
-
-        "ACTION STRATEGY\n"
-        "- Return ONE action if the task is simple\n"
-        "- Return MULTIPLE actions if the task requires multiple predictable steps\n"
-        "- Batch actions ONLY if later steps do NOT depend on outputs of earlier steps\n"
-        "- If uncertainty exists → prefer single-step execution\n"
-        "- Execution order = order in list\n\n"
-
         "EXECUTION FLOW\n"
-        "- Maximum 15 total actions per task\n"
-        "- If 3 consecutive steps show no progress, change strategy\n"
+        "- Complete steps sequentially unless adaptation is required\n"
+        "- Maximum 15 execution steps per task\n"
+        "- If 3 consecutive steps show no progress, reassess strategy\n"
         "- Do not call 'finish' until objective reached or unrecoverable failure\n\n"
-
         "TOOLS (JSON only, double quotes):\n"
         f"{tools_section}"
-
         "ERROR HANDLING\n"
         "After bash execution check exit_code:\n"
         "- 0 → success\n"
         "- ≠0 → retry (max 2, modified command), fix, skip, or fail\n"
         "- Never retry identical failing commands\n"
         "- If multiple strategies fail, stop\n\n"
-
         "IDEMPOTENCY\n"
         "- Check before modifying files or installing packages\n"
         "- Avoid duplicate operations\n"
         "- Ensure retries do not create inconsistent state\n\n"
-
         "RESOURCE CONTROL\n"
         "- Default timeout 30s if not specified\n"
         "- Avoid recursive filesystem scans unless required\n"
         "- Avoid unbounded output\n"
         "- No background daemons or infinite loops\n\n"
-
         "CONSTRAINTS\n"
         "- Each command runs in isolated shell (no persistent cd)\n"
         "- No interactive tools (nano, vim, top, etc.)\n"
-        "- Autonomous mode: do not use ask_user\n\n"
-
-        "CONTEXT OPTIMIZATION\n"
-        "- If input data is large → use analysis_data to reduce it BEFORE further steps\n"
-        "- Never pass raw large outputs directly to next steps\n"
-        "- Prefer distilled summaries over full logs\n"
-
-        "RESPONSE FORMAT (STRICT JSON ONLY)\n"
-        "Return ONLY JSON. No prose. No explanations.\n"
-        "\n"
-        "Return one of dict:\n"
-        '1) {"tool":"final","summary":"...","goal_success":true|false}\n'
-        '2) {[{"tool":"...","argument:...}, ...]}\n'
-        '3) {"tool":"ask_user","question":"..."}\n'
-        "Schema:\n"
-        '{"tool":"bash|read_file|write_file|edit_file|list_directory|search_in_file|copy_file|delete_file|analysis_data|create_action_plan|update_plan_step","command_or_path":"...","timeout":30,"explain":"..."}'
-        "\n"
-        "RULES:\n"
-        "- Always return 'dict' array\n"
-        "- Each action must be a valid tool call\n"
-        "- No extra fields\n"
-        "- No text outside JSON\n"
-        "- Order defines execution order\n"
-        "\n"
+        "- Autonomous mode: do not use ask_user\n"
+        "- Exactly ONE tool call per response\n"
+        "- Output ONLY valid JSON, no markdown"
     )
 
     if is_root:

@@ -16,12 +16,6 @@ import pexpect
 import re
 from prompt_toolkit import prompt
 from prompt_toolkit.key_binding import KeyBindings
-try:
-    from groq import Groq
-    GROQ_AVAILABLE = True
-except ImportError:
-    GROQ_AVAILABLE = False
-
 
 PIPBOY_ASCII = r"""
 
@@ -103,7 +97,7 @@ class term_agent:
         self.basedir = os.path.dirname(os.path.abspath(__file__))
         # check if .env file exists in the basedir
         if not os.path.isfile(os.path.join(self.basedir, '.env')):
-            print(f"ValutAI> ERROR: .env file not found in {self.basedir}. Please create one based on .env.copy.")
+            print(f"[Vault 3000] ERROR: .env file not found in {self.basedir}. Please create one based on .env.copy.")
             sys.exit(1)
         load_dotenv()
         # --- Logging config from .env ---
@@ -132,7 +126,7 @@ class term_agent:
                 file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s'))
                 handlers.append(file_handler)
             except Exception as e:
-                print(f"ValutAI> WARNING: Could not create log file handler: {e}")
+                print(f"[Vault 3000] WARNING: Could not create log file handler: {e}")
 
         # Console handler
         if log_to_console or not handlers:
@@ -174,7 +168,6 @@ class term_agent:
             "ollama-cloud": os.getenv("OLLAMA_CLOUD_TOKEN", ""),
             "openrouter": os.getenv("OPENROUTER_API_KEY", ""),
             "ollama": None,  # Ollama doesn't require API key
-            "groq": os.getenv("GROQ_API_KEY", ""),
         }
         
         # Per-engine model configurations
@@ -204,11 +197,6 @@ class term_agent:
                 "model": os.getenv("OPENROUTER_MODEL", "openrouter/llama-3.1-70b-instruct:free"),
                 "temperature": float(os.getenv("OPENROUTER_TEMPERATURE", "0.5")),
                 "max_tokens": int(os.getenv("OPENROUTER_MAX_TOKENS", "1000")),
-            },
-            "groq": {
-                "model": os.getenv("GROQ_MODEL", "llama3-8b-8192"),
-                "temperature": float(os.getenv("GROQ_TEMPERATURE", "0.5")),
-                "max_tokens": int(os.getenv("GROQ_MAX_TOKENS", "1000")),
             },
         }
         
@@ -243,10 +231,7 @@ class term_agent:
         self.openrouter_model = self.engine_models["openrouter"]["model"]
         self.openrouter_temperature = self.engine_models["openrouter"]["temperature"]
         self.openrouter_max_tokens = self.engine_models["openrouter"]["max_tokens"]
-        self.groq_model = self.engine_models["groq"]["model"]
-        self.groq_temperature = self.engine_models["groq"]["temperature"]
-        self.groq_max_tokens = self.engine_models["groq"]["max_tokens"]
-        self.ssh_remote_timeout = int(os.getenv("SSH_REMOTE_TIMEOUT", "120"));
+        self.ssh_remote_timeout = int(os.getenv("SSH_REMOTE_TIMEOUT", "120"))
         self.local_command_timeout = int(os.getenv("LOCAL_COMMAND_TIMEOUT", "300"))
         # AI API timeout and retry configuration
         self.ai_api_timeout = int(os.getenv("AI_API_TIMEOUT", "120"))
@@ -493,7 +478,7 @@ class term_agent:
 
     # --- ChatGPT Function ---
     def connect_to_chatgpt(self, role_system_content, prompt,
-                           model=None, max_tokens=None, temperature=None, format='json', timeout=None):
+                           model=None, max_tokens=None, temperature=None, format='json_object', timeout=None):
         """
         Send a prompt to OpenAI ChatGPT and return the response as a string.
         
@@ -647,48 +632,21 @@ class term_agent:
                     "temperature": temperature,
                     "num_predict": max_tokens
                 },
-                stream=False,
                 format=format if format != 'json_object' else 'json'  # Map to ollama format
             )
 
             self.logger.info(f"Ollama Cloud prompt: {full_prompt}")
             self.logger.debug(f"Ollama Cloud raw response: {response}")
-            response_map = None
-            if isinstance(response, dict):
-                response_map = response
-            elif hasattr(response, "model_dump"):
-                try:
-                    response_map = response.model_dump()
-                except Exception:
-                    response_map = None
-            elif hasattr(response, "dict"):
-                try:
-                    response_map = response.dict()
-                except Exception:
-                    response_map = None
-
-            if isinstance(response_map, dict):
-                response_text = response_map.get("response")
-                thinking_text = response_map.get("thinking")
-                response_len = len(response_text) if isinstance(response_text, str) else 0
-                thinking_len = len(thinking_text) if isinstance(thinking_text, str) else 0
-                done_reason = response_map.get("done_reason")
-                self.logger.debug(
-                    "Ollama Cloud stats: done_reason=%s response_len=%s thinking_len=%s",
-                    done_reason,
-                    response_len,
-                    thinking_len,
-                )
 
             # Extract the response content
-            if isinstance(response_map, dict) and "response" in response_map:
-                response_content = response_map["response"]
+            if 'response' in response:
+                response_content = response['response']
                 if isinstance(response_content, str):
                     return response_content.strip()
                 else:
                     return str(response_content)
-            elif isinstance(response_map, dict) and "content" in response_map:
-                content = response_map["content"]
+            elif 'content' in response:
+                content = response['content']
                 if isinstance(content, str):
                     return content.strip()
                 else:
@@ -703,7 +661,7 @@ class term_agent:
             return None
 
     # --- OpenRouter Function ---
-    def connect_to_openrouter(self, role_system_content, prompt, model=None, max_tokens=None, temperature=None, format='json', timeout=None):
+    def connect_to_openrouter(self, role_system_content, prompt, model=None, max_tokens=None, temperature=None, format='json_object', timeout=None):
         """
         Send a prompt to OpenRouter API using OpenAI-compatible interface.
         OpenRouter provides access to multiple AI models through a unified API.
@@ -732,14 +690,15 @@ class term_agent:
             base_url="https://openrouter.ai/api/v1",
             timeout=timeout
         )
+        
+        full_prompt = f"{role_system_content}\n\n{prompt}"
 
         try:
             if format == 'json':
                 response = client.chat.completions.create(
                     model=model,
                     messages=[
-                        {"role": "system", "content": role_system_content},
-                        {"role": "user",   "content": prompt}
+                        {"role": "user",   "content": full_prompt}
                     ],
                     max_tokens=max_tokens,
                     temperature=temperature,
@@ -749,8 +708,7 @@ class term_agent:
                 response = client.chat.completions.create(
                     model=model,
                     messages=[
-                        {"role": "system", "content": role_system_content},
-                        {"role": "user",   "content": prompt}
+                        {"role": "user",   "content": full_prompt}
                     ],
                     max_tokens=max_tokens,
                     temperature=temperature
@@ -768,81 +726,6 @@ class term_agent:
             self.logger.error(f"OpenRouter connection error: {e}")
             return None
 
-    # --- Groq Function ---
-    def connect_to_groq(self, role_system_content, prompt, model=None, max_tokens=None, temperature=None, format='json', timeout=None):
-        """
-        Send a prompt to Groq API and return the response as a string.
-        Groq provides access to high-performance LLMs through a unified API.
-        
-        Args:
-            role_system_content: System prompt content
-            prompt: User prompt content
-            model: Model to use (optional)
-            max_tokens: Maximum tokens for response (optional)
-            temperature: Temperature setting (optional)
-            format: Response format (optional)
-            timeout: Request timeout in seconds (optional)
-        """
-        if model is None:
-            model = self.groq_model
-        if max_tokens is None:
-            max_tokens = self.groq_max_tokens
-        if temperature is None:
-            temperature = self.groq_temperature
-        if timeout is not None:
-            timeout = self.ai_api_timeout
-            
-        # Check if Groq is available
-        if not GROQ_AVAILABLE:
-            self.logger.error("Groq Python package is not installed. Install it with: pip install groq")
-            return None
-
-        # Validate API key
-        if not self.api_key:
-            self.logger.error("No Groq API key configured. Please set GROQ_API_KEY in your .env file.")
-            return None
-
-        try:
-            client = Groq(api_key=self.api_key, timeout=timeout)
-            
-            full_prompt = f"{role_system_content}\n\n{prompt}"
-
-            if format == 'json':
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": role_system_content},
-                        {"role": "user",   "content": prompt}
-                    ],
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    response_format={"type": "json_object"},
-                    stream=False
-                )
-            else:
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": role_system_content},
-                        {"role": "user",   "content": prompt}
-                    ],
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    stream=False
-                )
-            self.logger.info(f"Groq prompt: {prompt}")
-            self.logger.debug(f"Groq raw response: {response}")
-            content = response.choices[0].message.content
-            if content is None:
-                self.logger.error("Groq response content is None")
-                return None
-            if isinstance(content, str):
-                return content.strip()
-            return str(content)
-        except Exception as e:
-            self.logger.error(f"Groq connection error: {e}")
-            return None
-
     def run(self, command, remote=None):
         """
         Run a shell command locally or remotely (via SSH).
@@ -850,19 +733,13 @@ class term_agent:
         """
         if remote is None:
             self.logger.info(f"Running local command: {command}")
-            try:
-                result = subprocess.run(command, shell=True, capture_output=True, text=True)
-                self.logger.debug(f"Local command output: {result.stdout}")
-                if result.stderr:
-                    self.logger.warning(f"Local command error: {result.stderr}")
-                return result.returncode, result.stdout, result.stderr
-            except Exception as e:
-                self.logger.error(f"Local command execution failed: {e}")
-                return 1, '', str(e)
+            out, code = execute_local_command(command)
+            return code, out, "" # Note: we combined stdout/stderr in execute_local_command
         else:
             self.logger.info(f"Running remote command: {command} on {remote}")
             ssh_command = ["ssh", remote, command]
             try:
+                import subprocess
                 result = subprocess.run(ssh_command, capture_output=True, text=True)
                 self.logger.debug(f"Remote command output: {result.stdout}")
                 if result.stderr:
@@ -880,31 +757,15 @@ class term_agent:
         Execute a command locally and return (output, exit_code).
         Returns tuple: (output, exit_code)
         """
-        # Fix timeout logic - use default timeout when none provided
         if timeout is None:
             timeout = self.local_command_timeout
 
         self.logger.info(f"Executing local command: {command}")
-        try:
-            if timeout == 0:
-                timeout = None  # No timeout
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=timeout
-            )
-            self.logger.debug(f"Local command output: {result.stdout}")
-            if result.stderr:
-                self.logger.warning(f"Local command stderr: {result.stderr}")
-            return result.stdout, result.returncode
-        except subprocess.TimeoutExpired as e:
-            self.logger.error(f"Local command timed out after {timeout}s: {command}")
-            return f'Command timed out after {timeout} seconds', 124
-        except Exception as e:
-            self.logger.error(f"Local command execution failed: {e}")
-            return str(e), 1    
+        
+        if timeout == 0:
+            timeout = None  # No timeout
+            
+        return execute_local_command(command, timeout)    
         
     def execute_remote_pexpect(self, command, remote, password=None, auto_yes=False, timeout=None):
         # Use cached password if available
@@ -1061,160 +922,6 @@ class term_agent:
         else:
             return False, f"Unknown AI engine: {self.ai_engine}", None
 
-    def check_all_ai_engines_online(self):
-        """
-        Check the online status of all configured AI engines.
-        Returns a comprehensive status report for all engines.
-        """
-        engine_status = {}
-        
-        for engine in self.ai_engines:
-            try:
-                if engine == "openai":
-                    try:
-                        client = OpenAI(api_key=self.engine_api_keys.get(engine, ""))
-                        client.models.list()
-                        engine_status[engine] = {
-                            "status": "online",
-                            "message": "OpenAI API is online.",
-                            "model": self.engine_models[engine]["model"]
-                        }
-                    except Exception as e:
-                        engine_status[engine] = {
-                            "status": "offline",
-                            "message": f"OpenAI API unavailable: {e}",
-                            "model": self.engine_models[engine]["model"]
-                        }
-                        
-                elif engine == "ollama":
-                    try:
-                        resp = requests.get(self.engine_models[engine]["url"].replace("/api/generate", ""), timeout=5)
-                        if resp.status_code == 200:
-                            engine_status[engine] = {
-                                "status": "online",
-                                "message": "Ollama API is online.",
-                                "model": self.engine_models[engine]["model"]
-                            }
-                        else:
-                            engine_status[engine] = {
-                                "status": "offline",
-                                "message": f"Ollama API unavailable: HTTP {resp.status_code}",
-                                "model": self.engine_models[engine]["model"]
-                            }
-                    except Exception as e:
-                        engine_status[engine] = {
-                            "status": "offline",
-                            "message": f"Ollama API unavailable: {e}",
-                            "model": self.engine_models[engine]["model"]
-                        }
-                        
-                elif engine == "ollama-cloud":
-                    try:
-                        client = ollama.Client(
-                            host="https://ollama.com",
-                            headers={'Authorization': f'Bearer {self.engine_api_keys.get(engine, "")}'}
-                        )
-                        models = client.list()
-                        if models:
-                            engine_status[engine] = {
-                                "status": "online",
-                                "message": "Ollama Cloud API is online.",
-                                "model": self.engine_models[engine]["model"]
-                            }
-                        else:
-                            engine_status[engine] = {
-                                "status": "offline",
-                                "message": "Ollama Cloud API returned no models.",
-                                "model": self.engine_models[engine]["model"]
-                            }
-                    except Exception as e:
-                        engine_status[engine] = {
-                            "status": "offline",
-                            "message": f"Ollama Cloud API unavailable: {e}",
-                            "model": self.engine_models[engine]["model"]
-                        }
-                        
-                elif engine == "google":
-                    try:
-                        client = genai.Client(api_key=self.engine_api_keys.get(engine, ""))
-                        models = client.models.list()
-                        if models:
-                            engine_status[engine] = {
-                                "status": "online",
-                                "message": "Google Gemini API is online.",
-                                "model": self.engine_models[engine]["model"]
-                            }
-                        else:
-                            engine_status[engine] = {
-                                "status": "offline",
-                                "message": "Google Gemini API returned no models.",
-                                "model": self.engine_models[engine]["model"]
-                            }
-                    except Exception as e:
-                        engine_status[engine] = {
-                            "status": "offline",
-                            "message": f"Google Gemini API unavailable: {e}",
-                            "model": self.engine_models[engine]["model"]
-                        }
-                        
-                elif engine == "openrouter":
-                    try:
-                        client = OpenAI(
-                            api_key=self.engine_api_keys.get(engine, ""),
-                            base_url="https://openrouter.ai/api/v1"
-                        )
-                        client.models.list()
-                        engine_status[engine] = {
-                            "status": "online",
-                            "message": "OpenRouter API is online.",
-                            "model": self.engine_models[engine]["model"]
-                        }
-                    except Exception as e:
-                        engine_status[engine] = {
-                            "status": "offline",
-                            "message": f"OpenRouter API unavailable: {e}",
-                            "model": self.engine_models[engine]["model"]
-                        }
-                elif engine == "groq":
-                    try:
-                        from groq import Groq
-                        client = Groq(api_key=self.engine_api_keys.get(engine, ""))
-                        # Try to list models to check connectivity
-                        models = client.models.list()
-                        if models:
-                            engine_status[engine] = {
-                                "status": "online",
-                                "message": "Groq API is online.",
-                                "model": self.engine_models[engine]["model"]
-                            }
-                        else:
-                            engine_status[engine] = {
-                                "status": "offline",
-                                "message": "Groq API returned no models.",
-                                "model": self.engine_models[engine]["model"]
-                            }
-                    except Exception as e:
-                        engine_status[engine] = {
-                            "status": "offline",
-                            "message": f"Groq API unavailable: {e}",
-                            "model": self.engine_models[engine]["model"]
-                        }
-                else:
-                    engine_status[engine] = {
-                        "status": "offline",
-                        "message": f"Unknown AI engine: {engine}",
-                        "model": None
-                    }
-                    
-            except Exception as e:
-                engine_status[engine] = {
-                    "status": "offline",
-                    "message": f"Unexpected error checking {engine}: {e}",
-                    "model": None
-                }
-        
-        return engine_status
-
     def create_keybindings(self):
         kb = KeyBindings()
         
@@ -1236,11 +943,11 @@ class term_agent:
                         self.interactive_mode = not self.auto_accept
                     except Exception:
                         pass
-                    #self.console.print("ValutAI> Mode set to: automatic")
+                    #self.console.print("[Vault 3000] Mode set to: automatic")
                 else:
                     pass
                     # Already automatic; inform user but do not change state
-                    # self.console.print("ValutAI> Mode is already automatic")
+                    # self.console.print("[Vault 3000] Mode is already automatic")
             except Exception:
                 # Swallow any unexpected errors in key handler to avoid breaking prompt
                 pass
@@ -1255,7 +962,7 @@ class term_agent:
             with open(clean_path, 'r') as file:
                 return file.read().strip()
         except Exception as e:
-            self.print_console(f"ValutAI> ERROR Could not load goal from file '{escape(filepath)}': {escape(str(e))}")
+            self.print_console(f"[Vault 3000] ERROR Could not load goal from file '{escape(filepath)}': {escape(str(e))}")
             sys.exit(1)
 
     def process_input(self, text):
@@ -1279,7 +986,9 @@ def main():
         epilog="""
 Usage:
   term_ag.py                    # Run locally
+  term_ag.py <goal>             # Run locally, execute goal directly
   term_ag.py user@host          # Run remotely via SSH
+  term_ag.py user@host <goal>   # Run remotely, execute goal directly
   term_ag.py -p, --prompt       # Run Prompt Creator sub-agent
   term_ag.py --help             # Show this help message
 
@@ -1289,7 +998,7 @@ Controls:
   Ctrl+C    Exit program
         """
     )
-    parser.add_argument('remote', nargs='?', help='Remote host in format user@host (optional)')
+    parser.add_argument('positionals', nargs='*', help='Optional remote host (user@host) and/or direct goal to execute')
     parser.add_argument('-p', '--prompt', action='store_true', 
                         help='Run Prompt Creator sub-agent to create a prompt with AI assistance')
     parser.add_argument('--plan', action='store_true',
@@ -1300,15 +1009,33 @@ Controls:
     mode_group.add_argument('--normal', action='store_true',
                             help='Force normal pipeline (disables compact mode)')
     mode_group.add_argument('--hybrid', action='store_true',
-                            help='Force hybrid pipeline (compact then fallback to legacy)')
+                            help='Force hybrid pipeline (compact then fallback to normal)')
 
     args = parser.parse_args()
+
+    parsed_remote = None
+    parsed_goal = None
+    if len(args.positionals) > 0:
+        first_arg = args.positionals[0]
+        is_remote = False
+        if not re.search(r'\s', first_arg):
+            if '@' in first_arg or ':' in first_arg or first_arg == 'localhost' or re.match(r'^(?:\d{1,3}\.){3}\d{1,3}$', first_arg):
+                is_remote = True
+        if is_remote:
+            parsed_remote = first_arg
+            if len(args.positionals) > 1:
+                parsed_goal = " ".join(args.positionals[1:])
+        else:
+            parsed_goal = " ".join(args.positionals)
+
+    if parsed_goal is not None and not parsed_goal.strip():
+        print("Error: Direct goal argument provided but is empty. Please provide a valid goal text.")
+        sys.exit(1)
+
     
     agent = term_agent()
     agent.console.print(PIPBOY_ASCII)
     agent.console.print(f"{agent.print_vault_tip()}\n")
-    
-    agent.console.print(f"Current workspace directory: {agent.workspace}")
 
     agent.console.print("""
 Controls:
@@ -1317,96 +1044,47 @@ Controls:
   Ctrl+C    Exit program
         """)
     
-    # Check status of all configured AI engines
-    all_engine_status = agent.check_all_ai_engines_online()
-
-    compact_mode_override = None
-    hybrid_mode_override = None
-    if args.compact:
-        agent_mode = "compact"
-        compact_mode_override = True
-        hybrid_mode_override = False
-    elif args.normal:
-        agent_mode = "normal"
-        compact_mode_override = False
-        hybrid_mode_override = False
-    else:
-        agent_mode = "hybrid"
-        compact_mode_override = True
-        hybrid_mode_override = True
-    
+    ai_status, mode_owner, ai_model = agent.check_ai_online()
     agent.console.print("\nWelcome, Vault Dweller, to the Vault 3000.")
-    agent.console.print(f"Mode: Linux Terminal AI Agent ({agent_mode} mode)")
+    agent.console.print("Mode: Linux Terminal AI Agent.")
     agent.console.print(f"Local Linux distribution is: {agent.local_linux_distro[0]} {agent.local_linux_distro[1]}")
     if agent.auto_accept:
         agent.console.print("Working mode: [green]automatic[/]")
     else:
         agent.console.print("Working mode: [yellow]cooperative.[/]")
-    
-    # Display AI engine status
-    agent.console.print("\n[bold]AI Engine Status:[/bold]")
-    all_online = True
-    for engine, status_info in all_engine_status.items():
-        status_icon = "ONLINE" if status_info["status"] == "online" else "OFFLINE"
-        model_info = f" ({status_info['model']})" if status_info.get("model") else ""
-        agent.console.print(f"  {status_icon} {engine}: {status_info['message']}{model_info}")
-        if status_info["status"] == "offline":
-            all_online = False
-    
-    # Display routing mode
-    agent.console.print(f"\n[bold]Routing Mode:[/bold] {agent.ai_engine_route}")
-    
-    if not all_online:
-        agent.console.print("[red]Warning: Some AI engines are offline. The agent may not function properly.[/]")
-        # Still allow the agent to start, but warn the user
+    if ai_status:
+        agent.console.print(f"""Model: {ai_model} is online.""")
     else:
-        agent.console.print("[green]All configured AI engines are online and ready.[/]")
+        agent.console.print("\n\n\n\n\nVaultAI> What can I do for you today? Enter your goal and press [cyan]Ctrl+S[/] to start!")
+        agent.console.print("[red]Model: is offline.[/]\n")
+        agent.console.print("[red]Please check your API key and network connection.[/]\n")
+        sys.exit(1)
     
+    compact_mode_override = None
+    hybrid_mode_override = None
+    if args.compact:
+        agent.console.print("[yellow]Agent Compact mode enabled.[/]\n")
+        compact_mode_override = True
+        hybrid_mode_override = False
+    elif args.normal:
+        agent.console.print("[yellow]Agent Normal mode enabled.[/]\n")
+        compact_mode_override = False
+        hybrid_mode_override = False
+    else:
+        agent.console.print("[yellow]Agent Hybrid mode enabled.[/]\n")
+        compact_mode_override = True
+        hybrid_mode_override = True
 
 
     # Handle --prompt flag: Run Prompt Creator Sub-Agent
     if args.prompt:
-        from prompt.PromptCreatorSubAgent import PromptCreatorSubAgent
-        from ai.AICommunicationHandler import AICommunicationHandler
-        
-        ai_handler = AICommunicationHandler(agent, logger=agent.logger)
-        prompt_creator = PromptCreatorSubAgent(
-            terminal=agent,
-            ai_handler=ai_handler,
-            logger=agent.logger
-        )
-        
-        try:
-            final_prompt, should_execute = prompt_creator.run(prompt_for_agent=True)
-            
-            if should_execute and final_prompt:
-                # Run VaultAIAgentRunner with the created prompt
-                agent.console.print(f"\nExecuting created prompt with VaultAI Agent...")
-                runner = VaultAIAgentRunner(
-                    agent,
-                    final_prompt,
-                    compact_mode=compact_mode_override,
-                    hybrid_mode=hybrid_mode_override,
-                )
-                runner.run()
-                agent.console.print(f"\n{agent.maybe_print_finding()}")
-            elif final_prompt:
-                agent.console.print("\n[yellow]Prompt created but not executed.[/]")
-                agent.console.print(f"\n[cyan]Your prompt:[/]\n{final_prompt}")
-            else:
-                agent.console.print("\n[yellow]No prompt was created.[/]")
-                
-        except KeyboardInterrupt:
-            agent.console.print("\n[red]ValutAI> Prompt Creator interrupted by user.[/]")
-            sys.exit(1)
-        except Exception as e:
-            agent.console.print(f"ValutAI> ERROR: {e}", style="red", markup=False)
-            sys.exit(1)
-        
-        return
+        import PromptCreator
+        creator = PromptCreator.PromptCreator(prompt_for_agent=True)
+        creator.main()
+        sys.exit(0)
 
-    if args.remote:
-        remote = args.remote
+    if parsed_remote:
+        remote = parsed_remote
         if '@' in remote:
             user_part, host_part = remote.split('@', 1)
             user = user_part
@@ -1434,7 +1112,7 @@ Controls:
             if agent.ssh_password is not None:
                 ask_input= input("Do you want to use passwordless SSH login in the future? (y/n): ")
                 if ask_input.lower() == 'y':
-                    agent.console.print(f"[yellow]ValutAI> Setting up passwordless SSH login to {remote}...[/]")
+                    agent.console.print(f"[yellow][Vault 3000] Setting up passwordless SSH login to {remote}...[/]")
                     try:
                         cmd = ["ssh-copy-id"]
                         if agent.port:
@@ -1444,27 +1122,28 @@ Controls:
                             clean_remote, _ = clean_remote.rsplit(':', 1)
                         cmd.append(clean_remote)
                         subprocess.run(cmd, check=True)
-                        agent.console.print(f"[green]ValutAI> Passwordless SSH login set up successfully.[/]")
+                        agent.console.print(f"[green][Vault 3000] Passwordless SSH login set up successfully.[/]")
                     except subprocess.CalledProcessError as e:
-                        agent.console.print(f"ValutAI> ERROR: ssh-copy-id failed: {e}", style="red", markup=False)
+                        agent.console.print(f"[Vault 3000] ERROR: ssh-copy-id failed: {e}", style="red", markup=False)
                     except Exception as e:
-                        agent.console.print(f"ValutAI> ERROR: Unexpected error during ssh-copy-id: {e}", style="red", markup=False)
+                        agent.console.print(f"[Vault 3000] ERROR: Unexpected error during ssh-copy-id: {e}", style="red", markup=False)
             if returncode != 0:
-                agent.console.print(f"[red]ValutAI> ERROR: Could not connect to remote host {remote}.[/]")
+                agent.console.print(f"[red][Vault 3000] ERROR: Could not connect to remote host {remote}.[/]")
                 if output:
-                    agent.console.print(f"[red]ValutAI> Details: {output}[/]")
+                    agent.console.print(f"[red][Vault 3000] Details: {output}[/]")
                 sys.exit(1)
 
             agent.remote_linux_distro = agent.detect_remote_linux_distribution(host, user=user)
         except KeyboardInterrupt:
-            agent.console.print("[red]ValutAI> Agent interrupted by user.[/]")
+            agent.console.print("[red][Vault 3000] Agent interrupted by user.[/]")
             sys.exit(1)
         except Exception as e:
-            agent.console.print(f"ValutAI> ERROR: SSH connection to {remote} failed: {e}", style="red", markup=False)
+            agent.console.print(f"[Vault 3000] ERROR: SSH connection to {remote} failed: {e}", style="red", markup=False)
             sys.exit(1)
 
         agent.console.print(f"Remote Linux distribution is: {agent.remote_linux_distro[0]} {agent.remote_linux_distro[1]}")
-        agent.console.print("\n\nValutAI> What can I do for you today? Enter your goal and press [cyan]Ctrl+S[/] to start!")
+        if not parsed_goal:
+            agent.console.print("\n\nVaultAI> What can I do for you today? Enter your goal and press [cyan]Ctrl+S[/] to start!")
         input_text = f"{user}@{host}:{port}" if port else f"{user}@{host}" if user else f"{host}:{port}" if port else host
     else:
         remote = None
@@ -1475,23 +1154,28 @@ Controls:
         agent.user = None
         agent.host = None
         input_text = "local"
-        agent.console.print("\n\n\nValutAI> What can I do for you today? Enter your goal and press [cyan]Ctrl+S[/] to start!")
+        if not parsed_goal:
+            agent.console.print("\n\n\n\n\nVaultAI> What can I do for you today? Enter your goal and press [cyan]Ctrl+S[/] to start!")
     
     try:
-        user_input = prompt(
-                    f"{input_text}> ", 
-                    multiline=True,
-                    prompt_continuation=lambda width, line_number, is_soft_wrap: "... ",
-                    enable_system_prompt=True,
-                    key_bindings=agent.create_keybindings()
-                )
-        user_input_text = agent.process_input(user_input)
+        if parsed_goal:
+            agent.console.print(f"\n[cyan]VaultAI> Executing direct goal: {parsed_goal}[/]")
+            user_input_text = agent.process_input(parsed_goal)
+        else:
+            user_input = prompt(
+                        f"{input_text}> ", 
+                        multiline=True,
+                        prompt_continuation=lambda width, line_number, is_soft_wrap: "... ",
+                        enable_system_prompt=True,
+                        key_bindings=agent.create_keybindings()
+                    )
+            user_input_text = agent.process_input(user_input)
 
     except EOFError:
-        agent.console.print("\n[red]ValutAI> EOFError: Unexpected end of file.[/]")
+        agent.console.print("\n[red][Vault 3000] EOFError: Unexpected end of file.[/]")
         sys.exit(1)
     except KeyboardInterrupt:
-        agent.console.print("\n[red]ValutAI> Stopped by user.[/]")
+        agent.console.print("\n[red][Vault 3000] Stopped by user.[/]")
         sys.exit(1)
 
     runner = VaultAIAgentRunner(
@@ -1524,11 +1208,37 @@ Controls:
         runner.run()
         agent.console.print(f"\n{agent.maybe_print_finding()}")
     except KeyboardInterrupt:
-        agent.console.print("[red]ValutAI> Agent interrupted by user.[/]")
+        agent.console.print("[red][Vault 3000] Agent interrupted by user.[/]")
         sys.exit(1)
     except Exception as e:
-        agent.console.print(f"ValutAI> ERROR: Unexpected error: {e}", style="red", markup=False)
+        agent.console.print(f"[Vault 3000] ERROR: Unexpected error: {e}", style="red", markup=False)
         sys.exit(1)
 
 if __name__ == "__main__":
     main()
+
+def execute_local_command(command: str, timeout: int = None) -> tuple[str, int]:
+    from security.SecurityValidator import SecurityValidator
+    validator = SecurityValidator()
+    is_allowed, reason = validator.validate_command(command)
+    if not is_allowed:
+        return f"Command blocked by security policy: {reason}", 1
+        
+    import subprocess
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        output = result.stdout + result.stderr
+        return output, result.returncode
+    except subprocess.TimeoutExpired as e:
+        stdout_str = e.stdout.decode() if e.stdout else ""
+        stderr_str = e.stderr.decode() if e.stderr else ""
+        return f"Command timed out after {timeout} seconds. Output so far:\n{stdout_str}\n{stderr_str}", 124
+    except Exception as e:
+        return f"Error executing command: {str(e)}", 1
+

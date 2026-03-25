@@ -280,13 +280,12 @@ class ActionPlanManager:
         """Return plan progress statistics."""
         total = len(self.steps)
         if total == 0:
-            return {"total": 0, "completed": 0, "failed": 0, "pending": 0, "in_progress": 0, "skipped": 0, "percentage": 0}
+            return {"total": 0, "completed": 0, "failed": 0, "pending": 0, "in_progress": 0, "percentage": 0}
         
         completed = sum(1 for s in self.steps if s.status == StepStatus.COMPLETED)
         failed = sum(1 for s in self.steps if s.status == StepStatus.FAILED)
         pending = sum(1 for s in self.steps if s.status == StepStatus.PENDING)
         in_progress = sum(1 for s in self.steps if s.status == StepStatus.IN_PROGRESS)
-        skipped = sum(1 for s in self.steps if s.status == StepStatus.SKIPPED)
         percentage = int((completed / total) * 100)
         
         return {
@@ -295,7 +294,6 @@ class ActionPlanManager:
             "failed": failed,
             "pending": pending,
             "in_progress": in_progress,
-            "skipped": skipped,
             "percentage": percentage
         }
 
@@ -589,3 +587,23 @@ if __name__ == "__main__":
     manager.save_to_file("/tmp/test_plan.json")
     print("\nContext for AI:")
     print(manager.get_context_for_ai())
+
+    def create_plan_from_json(self, steps: List[Dict[str, Any]]):
+        self.clear()
+        for idx, step in enumerate(steps, start=1):
+            s = PlanStep(
+                number=idx,
+                description=step.get("description", ""),
+                command=step.get("command"),
+                status=StepStatus.PENDING
+            )
+            self.steps.append(s)
+        return self.steps
+
+    def update_step_status(self, step_number: int, status: str, reason: Optional[str] = None):
+        try:
+            enum_status = StepStatus(status)
+        except ValueError:
+            enum_status = StepStatus.PENDING
+        self.mark_step_status(step_number, enum_status, reason)
+

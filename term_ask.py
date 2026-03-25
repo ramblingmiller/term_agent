@@ -3,6 +3,13 @@ from VaultAIAskRunner import VaultAIAskRunner
 from term_ag import term_agent, PIPBOY_ASCII
 
 def main():
+    if len(sys.argv) >= 2:
+        if sys.argv[1] in ("-h", "--help"):
+            print("Usage: python term_ask.py")
+            sys.exit(0)
+        print("Chat doesn't support extra arguments.")
+        sys.exit(1)
+
     agent = term_agent()
     agent.console.print(PIPBOY_ASCII)
     agent.console.print(f"{agent.print_vault_tip()}\n")
@@ -19,15 +26,11 @@ def main():
         agent.console.print("[red][Vault 3000] Please check your API key and network connection.[/]\n")
         sys.exit(1)
 
-    if len(sys.argv) >= 2:
-        agent.consle.print(f"Chat dont support remote mode.")
-        sys.exit(1)
-    else:
-        remote = None
-        user = None
-        host = None
-        agent.ssh_connection = False
-        agent.remote_host = None
+    remote = None
+    user = None
+    host = None
+    agent.ssh_connection = False
+    agent.remote_host = None
 
     runner = VaultAIAskRunner(agent, user=user, host=host)
     try:

@@ -196,6 +196,14 @@ class PromptCreator:
             except Exception as e:
                 self.console.print("[red]Error saving prompt:", e, "[/]")
 
-if __name__ == "__main__":
+def main():
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print("Usage: python PromptCreator.py")
+        sys.exit(0)
     creator = PromptCreator(prompt_for_agent=True)
     creator.main()
+
+if __name__ == "__main__":
+    main()
+

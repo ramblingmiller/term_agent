@@ -28,14 +28,20 @@ You are Vault 3000, an AI terminal agent specialized in Linux administration, au
 ### File Structure
 ```
 term_agent/
-├── term_ag.py                  # Main agent entry point (automation mode)
-├── term_ask.py                 # Chat mode entry point (Q&A)
-├── term_api.py                 # FastAPI entry point (HTTP mode)
-├── PromptCreator.py            # Interactive prompt builder tool
+├── term/                       # Unified CLI core
+│   ├── __init__.py
+│   ├── __main__.py             # Unified entry point (python -m term)
+│   └── runner_core.py          # Decomposed runner components
+├── term_ag.py                  # Legacy Agent entry point
+├── term_ask.py                 # Legacy Chat mode entry point
+├── term_api.py                 # Legacy API entry point
+├── PromptCreator.py            # Legacy Prompt creator tool
 ├── VaultAiAgentRunner.py       # Core agent execution logic
 ├── VaultAIAskRunner.py         # Chat mode logic
 ├── .env                        # Configuration (API keys, settings)
-├── requirements.txt            # Python dependencies
+├── requirements.txt            # Base Python dependencies
+├── requirements-ml.txt         # Optional ML dependencies
+├── security_policy.json        # Command execution security policy
 ├── api/                        # HTTP API server
 │   ├── api_server.py           # FastAPI app and endpoints
 │   └── api_agent.py            # Non-interactive API runner wrapper
@@ -53,11 +59,8 @@ term_agent/
 │   └── SecurityValidator.py
 ├── user/                       # User interaction handling
 │   └── UserInteractionHandler.py
-├── goal/                       # Predefined task templates
-│   ├── ansible/               # Ansible playbooks (LAMP, LXC, etc.)
-│   ├── docker/                # Docker configurations
-│   └── penetration/           # Security testing goals
-└── json_validator/            # JSON validation utilities
+├── tests/                      # Automated test suite (optional/generated)
+└── json_validator/             # JSON validation utilities
     └── JsonValidator.py
 ```
 

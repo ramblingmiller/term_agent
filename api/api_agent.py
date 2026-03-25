@@ -71,18 +71,12 @@ def run_agent_via_api(params: ApiRunParams) -> Dict[str, Any]:
         elif mode == "hybrid":
             compact_mode = True
             hybrid_mode = True
-    elif compact_mode is not None:
-        # pipeline_mode not provided, but compact_mode is set - derive hybrid_mode from it
-        if compact_mode:
-            hybrid_mode = True  # compact → hybrid (default)
         else:
-            hybrid_mode = False  # compact=False → normal
-
-    filtered_goal = compress_prompt(params.goal)
+            raise ValueError(f"Invalid pipeline_mode: {params.pipeline_mode}. Must be 'compact', 'normal', or 'hybrid'.")
 
     runner = VaultAIApiAgentRunner(
         terminal=terminal,
-        user_goal=filtered_goal,
+        user_goal=params.goal,
         system_prompt_agent=params.system_prompt_agent,
         user=params.user,
         host=params.host,
@@ -92,13 +86,8 @@ def run_agent_via_api(params: ApiRunParams) -> Dict[str, Any]:
         hybrid_mode=hybrid_mode,
     )
 
-    # Set force_plan from parameter or environment variable
-    if params.force_plan is not None:
-        runner.force_plan = params.force_plan
-    else:
-        # Check environment variable if parameter not provided
-        env_force_plan = os.getenv("FORCE_PLAN", "false").lower()
-        runner.force_plan = env_force_plan in ("true", "1", "yes", "on")
+    if params.force_plan:
+        runner.force_plan = True
 
     runner.run()
 

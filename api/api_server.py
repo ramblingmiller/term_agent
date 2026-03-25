@@ -24,8 +24,8 @@ class RunRequest(BaseModel):
     user: Optional[str] = None
     host: Optional[str] = None
     port: Optional[int] = None
-    window_size: int = Field(default=20, ge=5, le=200)
-    max_steps: Optional[int] = Field(default=None, ge=1, le=500)
+    window_size: int = Field(20, ge=5, le=200)
+    max_steps: Optional[int] = Field(None, ge=1, le=500)
     ssh_password: Optional[str] = None
     compact_mode: Optional[bool] = None
     force_plan: Optional[bool] = None
@@ -119,11 +119,9 @@ def _run_job(job_id: str, params: ApiRunParams) -> None:
             _jobs[job_id]["goal_success"] = False
             _jobs[job_id]["finished_at"] = time.time()
     except Exception as exc:
-        import traceback
-        error_details = f"Agent error: {exc}\nStack trace: {traceback.format_exc()}"
         with _jobs_lock:
             _jobs[job_id]["status"] = "failed"
-            _jobs[job_id]["error"] = error_details
+            _jobs[job_id]["error"] = f"Agent error: {exc}"
             _jobs[job_id]["goal_success"] = False
             _jobs[job_id]["finished_at"] = time.time()
 
